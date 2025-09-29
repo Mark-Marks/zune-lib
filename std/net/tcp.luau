@@ -4,7 +4,7 @@
 
 local net = zune.net
 local task = zune.task
-local process = zune.process
+local platform = zune.platform
 
 local SocketUtils = require("./sock_utils")
 
@@ -276,7 +276,7 @@ local function connectToHost(name: string, port: number): NetworkSocket
     for _, address in list do
         local socket = net.createSocket(
             address.family,
-            bit32.bor(net.SOCKF.STREAM, if process.os == "windows" then 0 else net.SOCKF.CLOEXEC),
+            bit32.bor(net.SOCKF.STREAM, if platform.os == "windows" then 0 else net.SOCKF.CLOEXEC),
             net.IPPROTO.TCP
         )
         local ok, err = pcall(function(): any?
