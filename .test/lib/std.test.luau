@@ -12,4 +12,7 @@ describe("@std", function()
     describe("Ansi", function()
         require("./std/ansi.test");
     end)
+    describe("Random", function()
+        require("./std/random.test")
+    end)
 end)
