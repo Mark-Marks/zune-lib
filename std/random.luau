@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+local random = zune.random
 
 local buf = buffer.create(0)
 local ptr = 0
@@ -55,6 +56,80 @@ local function schema<S>(schema_datatype: Datatype<S>): () -> Schema<reveal<Data
         size = schema_datatype.length,
         read = read,
     } :: any
+end
+
+local gen_cache = {}
+local function generator(length: number): () -> buffer
+    local hit = gen_cache[length]
+    if hit then
+        return hit
+    end
+
+    local prng = random.LuauPcg32.new()
+    local f64_max = 2 ^ 24 - 1
+
+    @native
+    local function fillf64(buff: buffer, n: number)
+        for i = 0, n do
+            buffer.writef64(buff, i * 8, prng:nextNumber(0, f64_max))
+        end
+    end
+
+    local create
+    if length % 8 == 0 then
+        local counts = length / 8 - 1
+        @native
+        function create(): buffer
+            local buff = buffer.create(length)
+            fillf64(buff, counts)
+            return buff
+        end
+    elseif length % 4 == 0 then
+        local f64_counts = length // 8 - 1
+        local partlen = length * 8
+        local i32_counts = ((length - partlen) / 4) - 1
+        local i32_max = 2 ^ 31 - 1
+        @native
+        function create(): buffer
+            local buff = buffer.create(length)
+            fillf64(buff, f64_counts)
+            for i = 0, i32_counts do
+                buffer.writei32(buff, partlen + (4 * i), prng:nextInteger(-i32_max, i32_max))
+            end
+            return buff
+        end
+    elseif length % 2 == 0 then
+        local f64_counts = length // 8 - 1
+        local partlen = length * 8
+        local u16_counts = ((length - partlen) / 2) - 1
+        local u16_max = 2 ^ 16 - 1
+        @native
+        function create(): buffer
+            local buff = buffer.create(length)
+            fillf64(buff, f64_counts)
+            for i = 0, u16_counts do
+                buffer.writei32(buff, partlen + (2 * i), prng:nextInteger(0, u16_max))
+            end
+            return buff
+        end
+    else
+        local f64_counts = length // 8 - 1
+        local partlen = length * 8
+        local u8_counts = length - partlen - 1
+        local u8_max = 2 ^ 8 - 1
+        @native
+        function create(): buffer
+            local buff = buffer.create(length)
+            fillf64(buff, f64_counts)
+            for i = 0, u8_counts do
+                buffer.writei32(buff, partlen + i, prng:nextInteger(0, u8_max))
+            end
+            return buff
+        end
+    end
+
+    gen_cache[length] = create
+    return create
 end
 
 local datatypes = {}
@@ -203,7 +278,10 @@ do
     local cache = {}
 
     local function ctor(length_datatype: Datatype<number>): Datatype<string>
-        assert(length_datatype == datatypes.u8 or length_datatype == datatypes.u16, "Dynamic strings must have an unsigned length datatype.")
+        assert(
+            length_datatype == datatypes.u8 or length_datatype == datatypes.u16,
+            "Dynamic strings must have an unsigned length datatype."
+        )
         local hit = cache[length_datatype]
         if hit then
             return hit
@@ -267,7 +345,10 @@ do
     local cache = {}
 
     local function ctor(length_datatype: Datatype<number>): Datatype<buffer>
-        assert(length_datatype == datatypes.u8 or length_datatype == datatypes.u16, "Dynamic buffers must have an unsigned length datatype.")
+        assert(
+            length_datatype == datatypes.u8 or length_datatype == datatypes.u16,
+            "Dynamic buffers must have an unsigned length datatype."
+        )
         local hit = cache[length_datatype]
         if hit then
             return hit
@@ -355,18 +436,17 @@ do
 end
 
 local function ordered_hash(...: any): string
-	local list = {...}
-	local list_len = #list
+    local list = { ... }
+    local list_len = #list
 
-	local output = ""
+    local output = ""
 
-	for index = 1, list_len do
-		output ..= `{tostring(list[index])}\126\002`
-	end
+    for index = 1, list_len do
+        output ..= `{tostring(list[index])}\126\002`
+    end
 
-	return output
+    return output
 end
-
 
 -- struct
 -- Thanks ardi for some magic (https://github.com/hardlyardi/light/blob/main/src/utils/holy.luau#L3271).
@@ -462,7 +542,10 @@ do
     local cache = {}
 
     local function ctor<Item>(item_datatype: Datatype<Item>, length_datatype: Datatype<number>): Datatype<{ Item }>
-        assert(length_datatype == datatypes.u8 or length_datatype == datatypes.u16, "Dynamic arrays must have an unsigned length datatype.")
+        assert(
+            length_datatype == datatypes.u8 or length_datatype == datatypes.u16,
+            "Dynamic arrays must have an unsigned length datatype."
+        )
 
         local hash = ordered_hash(item_datatype, length_datatype)
         local hit = cache[hash]
@@ -502,4 +585,5 @@ end
 return {
     datatypes = datatypes,
     schema = schema,
+    generator = generator,
 }
